@@ -1,0 +1,52 @@
+#pragma once
+
+#include <vector>
+#include <atomic>
+#include <thread>
+
+
+
+int snm_find (std::vector<std::atomic<int>>& snm, int cur) {
+
+    if (snm[cur] != cur) {
+        snm[cur] = snm_find(snm, snm[cur]);
+    }
+    return snm[cur];
+
+}
+
+
+
+void snm_union (std::vector<std::atomic<int>>& snm, int first, int second) {
+    snm[snm_find(snm, first)] = snm_find(snm, second);
+}
+
+
+
+void parallel_component_search_code(const std::vector<std::vector<int>>& graph, std::vector<std::atomic<int>>& snm, int from, int to) {
+
+    for (size_t i = 0; i < graph.size(); ++i){
+        snm[i] = i;
+    }
+
+    for (size_t cur = from; cur < to ; ++cur) {
+        for (int next : graph[cur]) {
+            snm_union(snm, cur, next);
+        }
+    }
+
+}
+
+void parallel_component_search (const std::vector<std::vector<int>>& graph, std::vector<std::atomic<int>>& snm, int n_threads) {
+
+    std::vector<std::thread> threads;
+    int offset = graph.size() / n_threads;
+    for (int i = 0; i < n_threads; ++i) {
+        threads.emplace_back(parallel_component_search_code, graph, snm, i * offset, i != n_threads - 1 ? (i + 1) * offset - 1 : n_threads);
+    }
+
+    for (int i = 0; i < n_threads; ++i) {
+        threads[i].join();
+    }
+    
+}
