@@ -1,15 +1,18 @@
-#pragma once
+#ifndef PARALLEL_COMPONENT_SEARCH_H
+#define PARALLEL_COMPONENT_SEARCH_H
+
 
 #include <vector>
 #include <atomic>
 #include <thread>
+#include <random>
+#include <iostream>
 
 
-
-int snm_find (std::vector<std::atomic<int>>& snm, int cur) {
+inline size_t snm_find (std::vector<std::atomic<size_t>>& snm, const size_t cur) {
 
     if (snm[cur] != cur) {
-        snm[cur] = snm_find(snm, snm[cur]);
+        snm[cur].exchange(snm_find(snm, snm[cur]));
     }
     return snm[cur];
 
@@ -17,36 +20,58 @@ int snm_find (std::vector<std::atomic<int>>& snm, int cur) {
 
 
 
-void snm_union (std::vector<std::atomic<int>>& snm, int first, int second) {
-    snm[snm_find(snm, first)] = snm_find(snm, second);
+inline void snm_union (std::vector<std::atomic<size_t>>& snm, size_t first, size_t second) {
+
+    if (std::rand() % 2) {
+        std::swap(first, second);
+    }
+    size_t first_parent = snm_find(snm, first);
+    size_t second_parent = snm_find(snm, second);
+    while(!(snm[first_parent].compare_exchange_weak(first_parent, second_parent))) {
+        first_parent = snm_find(snm, first_parent);
+    }
+
 }
 
 
 
-void parallel_component_search_code(const std::vector<std::vector<int>>& graph, std::vector<std::atomic<int>>& snm, int from, int to) {
-
-    for (size_t i = 0; i < graph.size(); ++i){
-        snm[i] = i;
-    }
+inline void thread_code(const std::vector<std::vector<size_t>>& graph, std::vector<std::atomic<size_t>>& snm, const size_t from, const size_t to) {
 
     for (size_t cur = from; cur < to ; ++cur) {
-        for (int next : graph[cur]) {
+        for (size_t next : graph[cur]) {
             snm_union(snm, cur, next);
         }
     }
 
 }
 
-void parallel_component_search (const std::vector<std::vector<int>>& graph, std::vector<std::atomic<int>>& snm, int n_threads) {
+std::vector<size_t> parallel_component_search (const std::vector<std::vector<size_t>>& graph, uint8_t n_threads) {
+
+    std::vector<std::atomic<size_t>> snm(graph.size());
+    for (size_t i = 0; i < snm.size(); ++i){
+        snm[i] = i;
+    }
 
     std::vector<std::thread> threads;
-    int offset = graph.size() / n_threads;
-    for (int i = 0; i < n_threads; ++i) {
-        threads.emplace_back(parallel_component_search_code, graph, snm, i * offset, i != n_threads - 1 ? (i + 1) * offset - 1 : n_threads);
+    const size_t segment_size = graph.size() / n_threads;
+
+    for (uint8_t i = 0; i < n_threads; ++i) {
+        const uint8_t local_i = i;
+        if (local_i != n_threads - 1) {
+            threads.emplace_back(thread_code, std::cref(graph), std::ref(snm), segment_size * local_i, (local_i + 1) * segment_size);
+        } else {
+            threads.emplace_back(thread_code, std::cref(graph), std::ref(snm), segment_size * local_i, graph.size());
+        }
     }
 
-    for (int i = 0; i < n_threads; ++i) {
+    for (uint8_t i = 0; i < n_threads; ++i) {
         threads[i].join();
     }
-    
+
+    std::vector<size_t> ans(snm.begin(), snm.end());
+    return ans;
+
 }
+
+
+#endif // PARALLEL_COMPONENT_SEARCH_H
