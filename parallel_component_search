@@ -9,43 +9,47 @@
 #include <iostream>
 
 
-inline size_t snm_find (std::vector<std::atomic<size_t>>& snm, const size_t cur) {
-
-    if (snm[cur] != cur) {
-        snm[cur].exchange(snm_find(snm, snm[cur]));
-    }
-    return snm[cur];
-
-}
-
-
-
-inline void snm_union (std::vector<std::atomic<size_t>>& snm, size_t first, size_t second) {
-
-    if (std::rand() % 2) {
-        std::swap(first, second);
-    }
-    size_t first_parent = snm_find(snm, first);
-    size_t second_parent = snm_find(snm, second);
-    while(!(snm[first_parent].compare_exchange_weak(first_parent, second_parent))) {
-        first_parent = snm_find(snm, first_parent);
-    }
-
-}
-
-
-
-inline void thread_code(const std::vector<std::vector<size_t>>& graph, std::vector<std::atomic<size_t>>& snm, const size_t from, const size_t to) {
-
-    for (size_t cur = from; cur < to ; ++cur) {
-        for (size_t next : graph[cur]) {
-            snm_union(snm, cur, next);
-        }
-    }
-
-}
-
 std::vector<size_t> parallel_component_search (const std::vector<std::vector<size_t>>& graph, uint8_t n_threads) {
+
+    class SomeFunctions {
+
+    public:
+
+        static size_t snm_find (std::vector<std::atomic<size_t>>& snm, const size_t cur) {
+
+            if (snm[cur] != cur) {
+                snm[cur].exchange(snm_find(snm, snm[cur]));
+            }
+            return snm[cur];
+
+        }
+
+        static inline void snm_union (std::vector<std::atomic<size_t>>& snm, size_t first, size_t second) {
+
+            if (std::rand() % 2) {
+                std::swap(first, second);
+            }
+            size_t first_parent = snm_find(snm, first);
+            size_t second_parent = snm_find(snm, second);
+            while(!(snm[first_parent].compare_exchange_weak(first_parent, second_parent))) {
+                first_parent = snm_find(snm, first_parent);
+            }
+
+        }
+
+        // function that will be used by every thread
+        static inline void thread_code (const std::vector<std::vector<size_t>>& graph, std::vector<std::atomic<size_t>>& snm, const size_t from, const size_t to) {
+
+            for (size_t cur = from; cur < to ; ++cur) {
+                for (size_t next : graph[cur]) {
+                    snm_union(snm, cur, next);
+                }
+            }
+
+        }
+
+    };
+
 
     std::vector<std::atomic<size_t>> snm(graph.size());
     for (size_t i = 0; i < snm.size(); ++i){
@@ -54,14 +58,8 @@ std::vector<size_t> parallel_component_search (const std::vector<std::vector<siz
 
     std::vector<std::thread> threads;
     const size_t segment_size = graph.size() / n_threads;
-
     for (uint8_t i = 0; i < n_threads; ++i) {
-        const uint8_t local_i = i;
-        if (local_i != n_threads - 1) {
-            threads.emplace_back(thread_code, std::cref(graph), std::ref(snm), segment_size * local_i, (local_i + 1) * segment_size);
-        } else {
-            threads.emplace_back(thread_code, std::cref(graph), std::ref(snm), segment_size * local_i, graph.size());
-        }
+        threads.emplace_back(SomeFunctions::thread_code, std::cref(graph), std::ref(snm), segment_size * i, ((i != n_threads - 1) ? ((i + 1) * segment_size) : (graph.size())));
     }
 
     for (uint8_t i = 0; i < n_threads; ++i) {
